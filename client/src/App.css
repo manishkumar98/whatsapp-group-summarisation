@@ -220,3 +220,28 @@ input{font-family:var(--font);outline:none}
   background: var(--nia50); border-color: var(--nia400);
   color: var(--nia600);
 }
+
+/* ── Refresh button ── */
+.refresh-job-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 14px; border-radius: 8px;
+  background: rgba(255,255,255,.1); color: var(--white);
+  border: 1px solid rgba(255,255,255,.2);
+  font-size: 12px; font-weight: 600; font-family: var(--font);
+  transition: all .15s; white-space: nowrap; flex-shrink: 0;
+}
+.refresh-job-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,.18);
+  border-color: rgba(255,255,255,.35);
+}
+.refresh-job-btn:disabled { opacity: .5; cursor: default; }
+
+/* ── Cooldown message ── */
+.cooldown-msg {
+  font-size: 11px; color: var(--pending);
+  background: rgba(198,138,26,.15);
+  border: 1px solid rgba(198,138,26,.3);
+  border-radius: 6px; padding: 4px 10px;
+  max-width: 280px; line-height: 1.4;
+  flex-shrink: 0;
+}

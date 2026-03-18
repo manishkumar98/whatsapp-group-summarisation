@@ -33,8 +33,8 @@ function Spinner({ size=16 }) {
   return <div className="spinner" style={{ width:size, height:size }} />;
 }
 
-function JobBar({ status, view, setView }) {
-  const isRunning = status?.running;
+function JobBar({ status, view, setView, onRefresh, refreshing, cooldownMsg }) {
+  const isRunning = status?.running || refreshing;
   const isToday   = status?.date === new Date().toISOString().split('T')[0];
   return (
     <div className="topbar">
@@ -46,6 +46,10 @@ function JobBar({ status, view, setView }) {
             : <><div className="dot dot-warn"/><span>Awaiting 6:30 AM IST</span></>
         }
       </div>
+      {cooldownMsg && <span className="cooldown-msg">{cooldownMsg}</span>}
+      <button className="refresh-job-btn" onClick={onRefresh} disabled={isRunning} title="Refresh all digests (once per 24h)">
+        {isRunning ? <Spinner size={11}/> : '↻'} {isRunning ? 'Running…' : 'Refresh'}
+      </button>
       <div className="view-toggle">
         <button className={`view-btn ${view==='dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>
           <span className="view-icon">⊞</span> Dashboard
@@ -433,6 +437,8 @@ export default function App() {
   const [messages,    setMessages]    = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [search,      setSearch]      = useState('');
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [cooldownMsg, setCooldownMsg] = useState('');
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -485,6 +491,29 @@ export default function App() {
     finally { setLoadingMsgs(false); }
   }, [view]);
 
+  async function handleRefresh() {
+    setRefreshing(true); setCooldownMsg('');
+    try {
+      const r = await fetch('/api/refresh', { method: 'POST' });
+      const d = await r.json();
+      if (!d.ok) {
+        setCooldownMsg(d.reason);
+        setRefreshing(false);
+        setTimeout(() => setCooldownMsg(''), 6000);
+      } else {
+        // Poll until job finishes
+        const poll = setInterval(async () => {
+          const s = await fetch('/api/job-status').then(r => r.json()).catch(() => null);
+          if (!s?.running) {
+            clearInterval(poll);
+            setRefreshing(false);
+            fetchSummaries();
+          }
+        }, 4000);
+      }
+    } catch(e) { setRefreshing(false); }
+  }
+
   return (
     <div className="app">
       {/* Top nav */}
@@ -502,7 +531,7 @@ export default function App() {
             <input type="text" placeholder="Search studios or communities…" value={search} onChange={e => setSearch(e.target.value)}/>
           </div>
         </div>
-        <JobBar status={jobStatus} view={view} setView={setView}/>
+        <JobBar status={jobStatus} view={view} setView={setView} onRefresh={handleRefresh} refreshing={refreshing} cooldownMsg={cooldownMsg}/>
       </header>
 
       {/* Content */}

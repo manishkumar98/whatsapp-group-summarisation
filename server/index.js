@@ -235,6 +235,35 @@ app.get('/api/job-status', (req, res) => {
 });
 
 
+
+// ── POST /api/refresh — manual trigger with 24h cooldown ──────────────────
+app.post('/api/refresh', (req, res) => {
+  const now   = new Date();
+  const today = now.toISOString().split('T')[0];
+
+  // Already running
+  if (cache.running) {
+    return res.json({ ok: false, reason: 'Job already running', lastRun: cache.lastRun });
+  }
+
+  // Already ran today — enforce 24h cooldown
+  if (cache.date === today && Object.keys(cache.summaries).length > 0) {
+    const lastRun  = new Date(cache.lastRun);
+    const hoursAgo = Math.round((now - lastRun) / 36e5 * 10) / 10;
+    const nextRun  = new Date(lastRun.getTime() + 24 * 60 * 60 * 1000);
+    return res.json({ 
+      ok: false, 
+      reason: `Already refreshed ${hoursAgo}h ago. Next refresh available at ${nextRun.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} IST.`,
+      lastRun: cache.lastRun,
+      nextAllowed: nextRun.toISOString(),
+    });
+  }
+
+  // Good to go
+  res.json({ ok: true, message: 'Refresh started' });
+  loadContacts().then(() => runJob('MANUAL')).catch(e => console.error('[MANUAL]', e));
+});
+
 // ── Health check / uptime ping endpoint ───────────────────────────────────
 app.get('/ping', (req, res) => {
   res.json({ 
