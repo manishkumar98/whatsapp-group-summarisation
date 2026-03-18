@@ -93,7 +93,7 @@ function SummaryPanel({ chat, onSummarise, summary, loading, messages }) {
           onClick={onSummarise}
           disabled={loading}
         >
-          {loading ? <><Spinner size={14} /> Summarising…</> : '✦ Summarise'}
+          {loading ? <><Spinner size={14} /> Summarising…</> : '✦ Summarise last 24h'}
         </button>
       </div>
 

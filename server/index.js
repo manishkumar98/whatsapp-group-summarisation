@@ -38,14 +38,23 @@ app.get('/api/chats', async (req, res) => {
 app.get('/api/chats/:chatId/messages', async (req, res) => {
   try {
     const { chatId } = req.params;
-    const limit = req.query.limit || 50;
+    // Fetch more messages so we have enough to filter last 24h
     const response = await axios.get(
-      `${PERISKOPE_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}`,
+      `${PERISKOPE_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=200`,
       { headers: periskopeHeaders() }
     );
     const data = response.data;
-    const messages = data.messages || data.data || data.results || (Array.isArray(data) ? data : []);
-    res.json({ messages });
+    const allMessages = data.messages || data.data || data.results || (Array.isArray(data) ? data : []);
+
+    // Filter to last 24 hours
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const messages = allMessages.filter(m => {
+      const ts = m.timestamp || m.created_at || m.updated_at || '';
+      if (!ts) return true; // include if no timestamp
+      return new Date(ts).getTime() >= since;
+    });
+
+    res.json({ messages, total: allMessages.length, filtered: messages.length });
   } catch (err) {
     console.error('Messages error:', err.response?.data || err.message);
     res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
@@ -76,7 +85,7 @@ app.post('/api/summarise', async (req, res) => {
         max_tokens: 1000,
         messages: [{
           role: 'user',
-          content: `Summarise this WhatsApp group chat in 4-6 clear bullet points. Focus on key topics discussed, decisions made, action items, and important information.\n\nGroup: "${chatName}"\n\n${transcript}`
+          content: `Summarise this WhatsApp group chat from the last 24 hours in 4-6 clear bullet points. Focus on key topics discussed, decisions made, action items, and important information.\n\nGroup: "${chatName}"\n\n${transcript}`
         }]
       },
       {
