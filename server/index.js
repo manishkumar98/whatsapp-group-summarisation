@@ -234,6 +234,20 @@ app.get('/api/job-status', (req, res) => {
   res.json({ lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length, nextRun: '01:00 UTC (6:30 AM IST)' });
 });
 
+
+// ── Health check / uptime ping endpoint ───────────────────────────────────
+app.get('/ping', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    time: new Date().toISOString(),
+    jobRunning: cache.running,
+    digestsReady: Object.keys(cache.summaries).length,
+    lastRun: cache.lastRun,
+  });
+});
+
+app.get('/health', (req, res) => res.send('OK'));
+
 const buildPath = path.join(__dirname, '../client/build');
 app.use(express.static(buildPath));
 app.get('*', (req, res) => res.sendFile(path.join(buildPath, 'index.html')));
