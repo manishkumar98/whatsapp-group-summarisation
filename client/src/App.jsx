@@ -234,9 +234,8 @@ function DashboardView({ chats, summaries, search }) {
 function ChatView({ chats, summaries, activeChat, onSelect, search, messages, loadingMsgs }) {
   const [collapsed, setCollapsed] = useState({});
 
-  const visibleChats = onlyUpdated ? chats.filter(c => !!summaries[c.chat_id]) : chats;
   const groups = {};
-  visibleChats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
+  chats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
     .forEach(c => {
       const comm = c.community || 'Uncategorised';
       if (!groups[comm]) groups[comm] = [];
