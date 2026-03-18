@@ -614,3 +614,17 @@
   color: var(--gray500);
   line-height: 1.5;
 }
+
+/* ── Job bar ──────────────────────────────────────────────── */
+.job-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 32px; font-size: 13px; border-bottom: 1px solid var(--gray100);
+}
+.job-bar-running { background: var(--nia50);  color: var(--nia600); border-color: var(--nia100); }
+.job-bar-done    { background: var(--flow50); color: var(--flow500); border-color: #C5E3D4; }
+.job-bar-warn    { background: #FFF8E8; color: var(--warning); border-color: #F0DDA0; }
+.job-next        { margin-left: auto; font-size: 11px; color: var(--gray400); }
+.dot-warn        { background: var(--warning) !important; box-shadow: 0 0 6px rgba(198,138,26,0.4) !important; }
+.summary-dot     { width: 7px; height: 7px; border-radius: 50%; background: var(--flow500); flex-shrink: 0; }
+.today-badge     { margin-top: 8px; font-size: 11px; padding: 3px 10px; background: var(--saffron50); color: var(--saffron600); border: 1px solid var(--saffron100); border-radius: 9999px; display: inline-block; font-weight: 600; }
+.no-summary-box  { background: var(--gray50); border: 1px dashed var(--gray200); border-radius: 12px; padding: 20px 24px; font-size: 14px; color: var(--gray500); line-height: 1.6; margin-bottom: 20px; }
