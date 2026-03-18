@@ -22,7 +22,7 @@ const COMMUNITY_MAP = {
   ],
   'Coromandel': [
     'chennai menka', 'menka ramdas', 'saralavathi', 'kothandaraman',
-    'kalyan kumar', 'sharmila ladies', 'sharmila gents'
+    'kalyan kumar', 'sharmila ladies', 'sharmila gents', 'parvesh'
   ],
 };
 
