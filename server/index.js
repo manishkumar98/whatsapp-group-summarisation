@@ -12,12 +12,12 @@ app.use(express.json());
 const PERISKOPE_BASE = 'https://api.periskope.app/v1';
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 
-// ── In-memory cache (cleared each day by cron) ─────────────────────────────
+// ── In-memory cache ────────────────────────────────────────────────────────
 let cache = {
-  summaries: {},   // chatId -> { chatName, summary, msgCount, generatedAt }
-  lastRun:   null, // ISO timestamp of last cron run
+  summaries: {},
+  lastRun:   null,
   running:   false,
-  date:      null, // YYYY-MM-DD of last run
+  date:      null,
 };
 
 const periskopeHeaders = () => ({
@@ -27,25 +27,73 @@ const periskopeHeaders = () => ({
   'Accept':        'application/json',
 });
 
-// ── Core job logic ─────────────────────────────────────────────────────────
+// ── Claude prompt — structured JSON digest ─────────────────────────────────
+function buildPrompt(chatName, transcript, msgCount) {
+  return `You are an AI assistant for Nia, a workforce housing company in India. You are analysing a WhatsApp group chat from one of Nia's worker hostels or operational groups.
+
+The messages may be in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi, or any mix of Indian languages. Understand all of them and respond ONLY in English.
+
+Group: "${chatName}"
+Messages in last 24 hours: ${msgCount}
+---
+${transcript}
+---
+
+Respond ONLY with a valid JSON object. No markdown, no backticks, no preamble. Use this exact structure:
+
+{
+  "signals": {
+    "urgent": <number of urgent unresolved issues>,
+    "pending": <number of pending/open issues>,
+    "resolved": <number of resolved issues today>,
+    "spokeUp": <number of distinct members who sent messages>
+  },
+  "issues": [
+    {
+      "title": "<short issue title in English, max 8 words>",
+      "detail": "<who raised it, how many agree, current status — max 12 words>",
+      "priority": "urgent" | "pending" | "resolved",
+      "isNew": true | false
+    }
+  ],
+  "announcements": [
+    "<key announcement or info shared, in English, max 20 words>"
+  ],
+  "mood": {
+    "stressed": <0-100 percentage>,
+    "mixed": <0-100 percentage>,
+    "calm": <0-100 percentage>,
+    "basis": "<one sentence explaining mood assessment>"
+  },
+  "language": "<primary language detected e.g. Hindi, Tamil, Mixed>"
+}
+
+Rules:
+- issues array: max 6 items, ordered by priority (urgent first)
+- announcements array: max 3 items, only factual info/notices
+- mood percentages must sum to 100
+- If no issues found, return empty arrays
+- Translate all content to English regardless of original language
+- urgent = safety/water/power/health issues with no resolution
+- pending = complaints open, no response yet
+- resolved = issues fixed or acknowledged today`;
+}
+
+// ── Run summarisation job ──────────────────────────────────────────────────
 async function runJob(label = 'CRON') {
-  if (cache.running) {
-    console.log(`[${label}] Already running, skipping`);
-    return;
-  }
-  cache.running = true;
+  if (cache.running) { console.log(`[${label}] Already running`); return; }
+  cache.running  = true;
   cache.summaries = {};
-  const start = new Date();
+  const start    = new Date();
   console.log(`\n[${label}] Started at ${start.toISOString()}`);
 
-  // 1. Fetch all chats
   let chats = [];
   try {
     const res = await axios.get(`${PERISKOPE_BASE}/chats?limit=100`, { headers: periskopeHeaders() });
     chats = res.data.chats || res.data.data || res.data.results || (Array.isArray(res.data) ? res.data : []);
-    console.log(`[${label}] ${chats.length} chats fetched`);
+    console.log(`[${label}] ${chats.length} chats`);
   } catch (e) {
-    console.error(`[${label}] Failed to fetch chats:`, e.message);
+    console.error(`[${label}] Fetch chats failed:`, e.message);
     cache.running = false;
     return;
   }
@@ -59,8 +107,7 @@ async function runJob(label = 'CRON') {
     if (!chatId) { skipped++; continue; }
 
     try {
-      // 2. Fetch last 24h messages
-      const msgRes  = await axios.get(
+      const msgRes   = await axios.get(
         `${PERISKOPE_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=200`,
         { headers: periskopeHeaders() }
       );
@@ -70,58 +117,56 @@ async function runJob(label = 'CRON') {
         return ts ? new Date(ts).getTime() >= since : true;
       });
 
-      // Skip quiet chats — saves tokens
-      if (messages.length < 5) {
-        console.log(`[${label}] Skip "${chatName}" — ${messages.length} msgs`);
-        skipped++;
-        continue;
-      }
+      if (messages.length < 5) { skipped++; continue; }
 
-      // 3. Build transcript
-      const transcript = messages.slice(-60).map(m => {
+      // Count unique senders
+      const senders = new Set(messages.map(m => m.sender_name || m.sender?.name).filter(Boolean));
+
+      const transcript = messages.slice(-80).map(m => {
         const sender = m.sender_name || m.sender?.name || 'Unknown';
         const text   = m.body || m.text || m.content || '';
-        return text ? `${sender}: ${text}` : null;
+        const ts     = m.timestamp || m.created_at || '';
+        const time   = ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+        return text ? `[${time}] ${sender}: ${text}` : null;
       }).filter(Boolean).join('\n');
 
-      if (!transcript.trim()) { skipped++; continue; }
-
-      // 4. Summarise with Claude
       const aiRes = await axios.post(
         `${ANTHROPIC_BASE}/messages`,
         {
           model:      'claude-sonnet-4-20250514',
-          max_tokens: 800,
-          messages: [{
-            role:    'user',
-            content: `Summarise this WhatsApp group chat from the last 24 hours in 4-6 clear bullet points. Focus on key topics, decisions, and action items.\n\nGroup: "${chatName}"\n\n${transcript}`
-          }]
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: buildPrompt(chatName, transcript, messages.length) }]
         },
         {
           headers: {
-            'Content-Type':      'application/json',
-            'x-api-key':         process.env.ANTHROPIC_API_KEY,
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.ANTHROPIC_API_KEY,
             'anthropic-version': '2023-06-01',
           }
         }
       );
 
-      const summary = aiRes.data.content?.[0]?.text;
-      if (!summary) { skipped++; continue; }
+      const raw  = aiRes.data.content?.[0]?.text || '{}';
+      const clean = raw.replace(/```json|```/g, '').trim();
+      let digest;
+      try { digest = JSON.parse(clean); }
+      catch { console.error(`[${label}] JSON parse failed for "${chatName}"`); skipped++; continue; }
 
-      // 5. Store in memory cache
+      // Patch spokeUp from actual data if model missed it
+      if (!digest.signals) digest.signals = {};
+      digest.signals.spokeUp = digest.signals.spokeUp || senders.size;
+
       cache.summaries[chatId] = {
         chatName,
-        summary,
+        chatType:    chat.chat_type || (chatId.endsWith('@g.us') ? 'group' : 'direct'),
         msgCount:    messages.length,
         generatedAt: new Date().toISOString(),
+        digest,
       };
 
-      console.log(`[${label}] ✓ "${chatName}" (${messages.length} msgs)`);
+      console.log(`[${label}] ✓ "${chatName}" (${messages.length} msgs, lang: ${digest.language || '?'})`);
       success++;
-
-      // Small delay between calls to avoid rate limits
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 400));
 
     } catch (e) {
       console.error(`[${label}] ✗ "${chatName}":`, e.message);
@@ -133,85 +178,50 @@ async function runJob(label = 'CRON') {
   cache.date    = start.toISOString().split('T')[0];
   cache.running = false;
 
-  const duration = Math.round((Date.now() - start) / 1000);
-  console.log(`[${label}] Done in ${duration}s — ✓${success} skipped:${skipped} failed:${failed}\n`);
+  const dur = Math.round((Date.now() - start) / 1000);
+  console.log(`[${label}] Done in ${dur}s — ✓${success} skip:${skipped} fail:${failed}\n`);
 }
 
-// ── Schedule: 6:30 AM IST = 01:00 UTC ──────────────────────────────────────
+// ── Cron: 6:30 AM IST = 01:00 UTC ─────────────────────────────────────────
 cron.schedule('0 1 * * *', () => {
-  runJob('CRON').catch(e => console.error('[CRON] Unhandled:', e));
+  runJob('CRON').catch(e => console.error('[CRON]', e));
 }, { timezone: 'UTC' });
 
-// ── Run immediately on first boot ───────────────────────────────────────────
-console.log('[BOOT] Running initial summarisation job...');
-setTimeout(() => {
-  runJob('BOOT').catch(e => console.error('[BOOT] Unhandled:', e));
-}, 5000); // 5s delay so server is fully ready first
+// ── Boot job ───────────────────────────────────────────────────────────────
+console.log('[BOOT] Scheduling initial job in 5s...');
+setTimeout(() => runJob('BOOT').catch(e => console.error('[BOOT]', e)), 5000);
 
-// ── API: GET /api/summaries — return cached summaries ──────────────────────
+// ── Routes ─────────────────────────────────────────────────────────────────
 app.get('/api/summaries', (req, res) => {
-  res.json({
-    summaries:  cache.summaries,
-    lastRun:    cache.lastRun,
-    date:       cache.date,
-    running:    cache.running,
-    count:      Object.keys(cache.summaries).length,
-  });
+  res.json({ summaries: cache.summaries, lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length });
 });
 
-// ── API: GET /api/chats ────────────────────────────────────────────────────
 app.get('/api/chats', async (req, res) => {
   try {
-    const response = await axios.get(
-      `${PERISKOPE_BASE}/chats?limit=100&offset=0`,
-      { headers: periskopeHeaders() }
-    );
-    const data  = response.data;
-    const chats = data.chats || data.data || data.results || (Array.isArray(data) ? data : []);
+    const r = await axios.get(`${PERISKOPE_BASE}/chats?limit=100`, { headers: periskopeHeaders() });
+    const chats = r.data.chats || r.data.data || r.data.results || (Array.isArray(r.data) ? r.data : []);
     res.json({ chats });
-  } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── API: GET /api/chats/:chatId/messages ───────────────────────────────────
 app.get('/api/chats/:chatId/messages', async (req, res) => {
   try {
-    const { chatId } = req.params;
-    const response = await axios.get(
-      `${PERISKOPE_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=200`,
-      { headers: periskopeHeaders() }
-    );
-    const data     = response.data;
-    const all      = data.messages || data.data || data.results || (Array.isArray(data) ? data : []);
-    const since    = Date.now() - 24 * 60 * 60 * 1000;
-    const messages = all.filter(m => {
-      const ts = m.timestamp || m.created_at || '';
-      return ts ? new Date(ts).getTime() >= since : true;
-    });
-    res.json({ messages, total: all.length, filtered: messages.length });
-  } catch (err) {
-    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
-  }
+    const r    = await axios.get(`${PERISKOPE_BASE}/chats/${encodeURIComponent(req.params.chatId)}/messages?limit=200`, { headers: periskopeHeaders() });
+    const all  = r.data.messages || r.data.data || r.data.results || [];
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const messages = all.filter(m => { const ts = m.timestamp || m.created_at || ''; return ts ? new Date(ts).getTime() >= since : true; });
+    res.json({ messages });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── API: GET /api/job-status ───────────────────────────────────────────────
 app.get('/api/job-status', (req, res) => {
-  res.json({
-    lastRun:    cache.lastRun,
-    date:       cache.date,
-    running:    cache.running,
-    count:      Object.keys(cache.summaries).length,
-    nextRun:    '01:00 UTC (6:30 AM IST)',
-  });
+  res.json({ lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length, nextRun: '01:00 UTC (6:30 AM IST)' });
 });
 
-// ── Serve React build ──────────────────────────────────────────────────────
+// ── Static ─────────────────────────────────────────────────────────────────
 const buildPath = path.join(__dirname, '../client/build');
 app.use(express.static(buildPath));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(buildPath, 'index.html'));
-});
+app.get('*', (req, res) => res.sendFile(path.join(buildPath, 'index.html')));
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
