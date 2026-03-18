@@ -212,3 +212,30 @@ input  { font-family: var(--font); outline: none; }
   padding: 8px 12px; border-radius: 0 6px 6px 0;
   line-height: 1.5; margin-top: 8px;
 }
+
+/* ── Community sidebar ── */
+.community-section { margin-bottom: 4px; }
+
+.community-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 12px; cursor: pointer; border-radius: 8px;
+  transition: background .1s; margin: 0 4px;
+}
+.community-header:hover { background: var(--gray50); }
+
+.comm-label-row { display: flex; align-items: center; gap: 7px; }
+.comm-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.comm-name { font-size: 12px; font-weight: 700; color: var(--gray700); text-transform: uppercase; letter-spacing: .5px; }
+.comm-count { font-size: 11px; color: var(--gray400); background: var(--gray100); padding: 1px 6px; border-radius: 9999px; }
+
+.comm-signals { display: flex; align-items: center; gap: 4px; }
+.comm-ready { font-size: 10px; color: var(--flow500); font-weight: 600; }
+.comm-chevron { font-size: 11px; color: var(--gray400); margin-left: 2px; }
+
+/* Community badge in digest header */
+.comm-badge { font-size: 10px; padding: 2px 8px; border-radius: 9999px; font-weight: 700; letter-spacing: .3px; }
+.comm-badge-lg { font-size: 11px; padding: 3px 10px; border-radius: 9999px; font-weight: 700; }
+.lang-pill { font-size: 10px; padding: 2px 8px; border-radius: 9999px; background: rgba(255,255,255,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.3); font-weight: 600; }
+
+/* Header signals row */
+.header-signals { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
