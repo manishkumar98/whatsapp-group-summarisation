@@ -205,6 +205,10 @@ async function runJob(label = 'CRON') {
         return ts ? new Date(ts).getTime() >= since : true;
       });
 
+      // Skip direct chats — groups only
+      const isGroup = chatId.endsWith('@g.us') || chat.chat_type === 'group';
+      if (!isGroup) { skipped++; continue; }
+
       if (messages.length < 3) { skipped++; continue; }
 
       // Build sender set with resolved names
@@ -312,7 +316,8 @@ app.get('/api/chats', async (req, res) => {
   try {
     const r = await axios.get(`${PERISKOPE_BASE}/chats?limit=100`, { headers: periskopeHeaders() });
     const chats = r.data.chats || r.data.data || r.data.results || (Array.isArray(r.data) ? r.data : []);
-    res.json({ chats });
+    const groups = chats.filter(c => (c.chat_id || c.id || '').endsWith('@g.us') || c.chat_type === 'group');
+    res.json({ chats: groups });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

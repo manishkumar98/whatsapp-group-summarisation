@@ -255,7 +255,7 @@ export default function App() {
   const [messages,    setMessages]    = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [search,      setSearch]      = useState('');
-  const [filter,      setFilter]      = useState('all');
+
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -300,12 +300,9 @@ export default function App() {
     finally { setLoadingMsgs(false); }
   }, []);
 
-  const filtered = chats.filter(c => {
-    const name    = (c.chat_name || c.name || '').toLowerCase();
-    const isGroup = c.chat_type === 'group' || (c.chat_id || '').endsWith('@g.us');
-    return name.includes(search.toLowerCase()) &&
-      (filter === 'all' || (filter === 'groups' && isGroup) || (filter === 'direct' && !isGroup));
-  });
+  const filtered = chats.filter(c =>
+    (c.chat_name || c.name || '').toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="app">
@@ -329,11 +326,7 @@ export default function App() {
           </div>
           <button className="refresh-btn" onClick={fetchChats}>↻</button>
         </div>
-        <div className="filter-row">
-          {['all','groups','direct'].map(f => (
-            <button key={f} className={`f-btn ${filter===f?'active':''}`} onClick={() => setFilter(f)}>{f}</button>
-          ))}
-        </div>
+
         <div className="chats-list">
           {loadingChats && <div className="loading-state"><Spinner size={18} /><span>Loading…</span></div>}
           {error && <div className="error-state">⚠ {error}<button className="retry-btn" onClick={fetchChats}>Retry</button></div>}
