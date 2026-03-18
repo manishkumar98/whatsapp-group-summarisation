@@ -231,6 +231,21 @@ app.get('/api/job-status', (req, res) => {
   res.json({ lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length, nextRun: '01:00 UTC (6:30 AM IST)' });
 });
 
+
+// ── DEBUG: see raw message structure ──────────────────────────────────────
+app.get('/api/debug/:chatId', async (req, res) => {
+  try {
+    const r   = await axios.get(`${PERISKOPE_BASE}/chats/${encodeURIComponent(req.params.chatId)}/messages?limit=5`, { headers: periskopeHeaders() });
+    const all = r.data.messages || r.data.data || r.data.results || [];
+    // Return first 3 messages with ALL fields so we can see the structure
+    res.json({ 
+      raw: all.slice(0, 3),
+      keys: all[0] ? Object.keys(all[0]) : [],
+      senderKeys: all[0]?.sender ? Object.keys(all[0].sender) : 'no sender object'
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 const buildPath = path.join(__dirname, '../client/build');
 app.use(express.static(buildPath));
 app.get('*', (req, res) => res.sendFile(path.join(buildPath, 'index.html')));
