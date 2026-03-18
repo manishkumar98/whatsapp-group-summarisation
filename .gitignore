@@ -1,6 +1,34 @@
+# Dependencies
 node_modules/
-.env
 client/node_modules/
+
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.development
+.env.production
+.env*.local
+
+# Build output
 client/build/
+build/
+
+# Lock files (optional - remove these lines if you want to commit them)
+package-lock.json
+client/package-lock.json
+yarn.lock
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
 *.log
+npm-debug.log*
+
+# Railway / deployment
+.railway/
+
+# IDE
+.vscode/
+.idea/
