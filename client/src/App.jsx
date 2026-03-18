@@ -144,7 +144,7 @@ function DigestCard({ chat, cached, messages, loadingMsgs }) {
             <SignalPills signals={d.signals} />
           </div>
 
-          {/* Issues */}
+          
           {d.issues?.length > 0 && (
             <div className="issues-section">
               <div className="section-title">Issues raised</div>
@@ -158,6 +158,8 @@ function DigestCard({ chat, cached, messages, loadingMsgs }) {
                 </div>
               ))}
             </div>
+          ) : (
+            <div className="no-issues">No issues or complaints raised in the last 24 hours.</div>
           )}
 
           {/* Announcements */}

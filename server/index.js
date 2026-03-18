@@ -12,7 +12,6 @@ app.use(express.json());
 const PERISKOPE_BASE = 'https://api.periskope.app/v1';
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 
-// ── In-memory cache ────────────────────────────────────────────────────────
 let cache = {
   summaries: {},
   lastRun:   null,
@@ -27,11 +26,10 @@ const periskopeHeaders = () => ({
   'Accept':        'application/json',
 });
 
-// ── Claude prompt — structured JSON digest ─────────────────────────────────
 function buildPrompt(chatName, transcript, msgCount) {
-  return `You are an AI assistant for Nia, a workforce housing company in India. You are analysing a WhatsApp group chat from one of Nia's worker hostels or operational groups.
+  return `You are an AI assistant for Nia, a workforce housing company in India. Analyse this WhatsApp group chat.
 
-The messages may be in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi, or any mix of Indian languages. Understand all of them and respond ONLY in English.
+Messages may be in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi, or any mix. Understand all languages. Respond ONLY in English.
 
 Group: "${chatName}"
 Messages in last 24 hours: ${msgCount}
@@ -39,52 +37,50 @@ Messages in last 24 hours: ${msgCount}
 ${transcript}
 ---
 
-Respond ONLY with a valid JSON object. No markdown, no backticks, no preamble. Use this exact structure:
+Respond ONLY with a valid JSON object — no markdown, no backticks, no explanation.
 
 {
   "signals": {
-    "urgent": <number of urgent unresolved issues>,
-    "pending": <number of pending/open issues>,
-    "resolved": <number of resolved issues today>,
-    "spokeUp": <number of distinct members who sent messages>
+    "urgent": <integer — safety/water/power/health issues with no resolution>,
+    "pending": <integer — complaints open with no response>,
+    "resolved": <integer — issues fixed or acknowledged today>,
+    "spokeUp": <integer — distinct members who sent messages>
   },
   "issues": [
     {
-      "title": "<short issue title in English, max 8 words>",
-      "detail": "<who raised it, how many agree, current status — max 12 words>",
-      "priority": "urgent" | "pending" | "resolved",
-      "isNew": true | false
+      "title": "<issue title in English, max 8 words>",
+      "detail": "<who raised it, status, follow-ups — max 15 words>",
+      "priority": "urgent" | "pending" | "resolved"
     }
   ],
   "announcements": [
-    "<key announcement or info shared, in English, max 20 words>"
+    "<key announcement or information shared, in English, max 20 words>"
   ],
   "mood": {
-    "stressed": <0-100 percentage>,
-    "mixed": <0-100 percentage>,
-    "calm": <0-100 percentage>,
-    "basis": "<one sentence explaining mood assessment>"
+    "stressed": <0-100>,
+    "mixed": <0-100>,
+    "calm": <0-100>,
+    "basis": "<one sentence explaining the mood assessment in English>"
   },
-  "language": "<primary language detected e.g. Hindi, Tamil, Mixed>"
+  "language": "<primary language detected, e.g. Hindi, Tamil, English, Mixed Hindi-English>",
+  "summary": "<2-3 sentence plain English summary of what this group discussed today>"
 }
 
 Rules:
-- issues array: max 6 items, ordered by priority (urgent first)
-- announcements array: max 3 items, only factual info/notices
-- mood percentages must sum to 100
-- If no issues found, return empty arrays
-- Translate all content to English regardless of original language
-- urgent = safety/water/power/health issues with no resolution
-- pending = complaints open, no response yet
-- resolved = issues fixed or acknowledged today`;
+- issues: max 6, ordered urgent first. Include even minor complaints.
+- announcements: max 3. Only factual notices/info shared.
+- mood percentages MUST sum to exactly 100.
+- If the chat is mostly casual (greetings, jokes), set mood calm-heavy and note it in basis.
+- If truly nothing happened, issues and announcements can be empty arrays [].
+- Always fill "summary" — describe what the group talked about even if trivial.
+- Translate everything to English.`;
 }
 
-// ── Run summarisation job ──────────────────────────────────────────────────
 async function runJob(label = 'CRON') {
   if (cache.running) { console.log(`[${label}] Already running`); return; }
-  cache.running  = true;
+  cache.running   = true;
   cache.summaries = {};
-  const start    = new Date();
+  const start     = new Date();
   console.log(`\n[${label}] Started at ${start.toISOString()}`);
 
   let chats = [];
@@ -117,16 +113,23 @@ async function runJob(label = 'CRON') {
         return ts ? new Date(ts).getTime() >= since : true;
       });
 
-      if (messages.length < 5) { skipped++; continue; }
+      // Skip if truly empty
+      if (messages.length < 3) {
+        console.log(`[${label}] Skip "${chatName}" — only ${messages.length} msgs`);
+        skipped++;
+        continue;
+      }
 
-      // Count unique senders
-      const senders = new Set(messages.map(m => m.sender_name || m.sender?.name).filter(Boolean));
-
+      // Count unique senders — use phone as fallback for name
+      const senderSet = new Set();
       const transcript = messages.slice(-80).map(m => {
-        const sender = m.sender_name || m.sender?.name || 'Unknown';
+        const name   = m.sender_name || m.sender?.name || null;
+        const phone  = m.sender_phone || m.sender?.phone || m.org_phone || null;
+        const sender = name || (phone ? phone.replace(/\D/g,'').slice(-4).padStart(4,'*') : 'Member');
+        senderSet.add(sender);
         const text   = m.body || m.text || m.content || '';
         const ts     = m.timestamp || m.created_at || '';
-        const time   = ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+        const time   = ts ? new Date(ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '';
         return text ? `[${time}] ${sender}: ${text}` : null;
       }).filter(Boolean).join('\n');
 
@@ -139,22 +142,33 @@ async function runJob(label = 'CRON') {
         },
         {
           headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': process.env.ANTHROPIC_API_KEY,
+            'Content-Type':      'application/json',
+            'x-api-key':         process.env.ANTHROPIC_API_KEY,
             'anthropic-version': '2023-06-01',
           }
         }
       );
 
-      const raw  = aiRes.data.content?.[0]?.text || '{}';
+      const raw   = aiRes.data.content?.[0]?.text || '{}';
       const clean = raw.replace(/```json|```/g, '').trim();
       let digest;
       try { digest = JSON.parse(clean); }
-      catch { console.error(`[${label}] JSON parse failed for "${chatName}"`); skipped++; continue; }
+      catch (pe) {
+        console.error(`[${label}] JSON parse failed for "${chatName}":`, pe.message);
+        skipped++; continue;
+      }
 
-      // Patch spokeUp from actual data if model missed it
+      // Patch spokeUp from actual data
       if (!digest.signals) digest.signals = {};
-      digest.signals.spokeUp = digest.signals.spokeUp || senders.size;
+      digest.signals.spokeUp = senderSet.size || digest.signals.spokeUp || 0;
+
+      // Ensure mood sums to 100
+      if (digest.mood) {
+        const sum = (digest.mood.stressed||0) + (digest.mood.mixed||0) + (digest.mood.calm||0);
+        if (sum !== 100 && sum > 0) {
+          digest.mood.calm = 100 - (digest.mood.stressed||0) - (digest.mood.mixed||0);
+        }
+      }
 
       cache.summaries[chatId] = {
         chatName,
@@ -164,12 +178,12 @@ async function runJob(label = 'CRON') {
         digest,
       };
 
-      console.log(`[${label}] ✓ "${chatName}" (${messages.length} msgs, lang: ${digest.language || '?'})`);
+      console.log(`[${label}] ✓ "${chatName}" (${messages.length} msgs, ${digest.language || '?'})`);
       success++;
       await new Promise(r => setTimeout(r, 400));
 
     } catch (e) {
-      console.error(`[${label}] ✗ "${chatName}":`, e.message);
+      console.error(`[${label}] ✗ "${chatName}":`, e.response?.data || e.message);
       failed++;
     }
   }
@@ -182,16 +196,15 @@ async function runJob(label = 'CRON') {
   console.log(`[${label}] Done in ${dur}s — ✓${success} skip:${skipped} fail:${failed}\n`);
 }
 
-// ── Cron: 6:30 AM IST = 01:00 UTC ─────────────────────────────────────────
+// Cron: 6:30 AM IST = 01:00 UTC
 cron.schedule('0 1 * * *', () => {
   runJob('CRON').catch(e => console.error('[CRON]', e));
 }, { timezone: 'UTC' });
 
-// ── Boot job ───────────────────────────────────────────────────────────────
-console.log('[BOOT] Scheduling initial job in 5s...');
+// Boot job
+console.log('[BOOT] Running initial job in 5s...');
 setTimeout(() => runJob('BOOT').catch(e => console.error('[BOOT]', e)), 5000);
 
-// ── Routes ─────────────────────────────────────────────────────────────────
 app.get('/api/summaries', (req, res) => {
   res.json({ summaries: cache.summaries, lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length });
 });
@@ -218,7 +231,6 @@ app.get('/api/job-status', (req, res) => {
   res.json({ lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length, nextRun: '01:00 UTC (6:30 AM IST)' });
 });
 
-// ── Static ─────────────────────────────────────────────────────────────────
 const buildPath = path.join(__dirname, '../client/build');
 app.use(express.static(buildPath));
 app.get('*', (req, res) => res.sendFile(path.join(buildPath, 'index.html')));

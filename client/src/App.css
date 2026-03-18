@@ -172,3 +172,24 @@ input  { font-family: var(--font); outline: none; }
 .msg-text { font-size:13px; color:var(--gray700); line-height:1.5; }
 
 .no-digest { background:var(--white); border:1px dashed var(--gray200); border-radius:12px; padding:20px 24px; font-size:13px; color:var(--gray500); line-height:1.6; margin-bottom:16px; }
+
+/* ── Summary text ── */
+.summary-text-box {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--gray100);
+  font-size: 14px;
+  color: var(--gray700);
+  line-height: 1.7;
+  background: var(--nia50);
+  border-left: 3px solid var(--nia400);
+  margin: 0;
+}
+
+/* ── Empty issues state ── */
+.no-issues {
+  padding: 10px 20px 14px;
+  font-size: 13px;
+  color: var(--gray400);
+  font-style: italic;
+  border-bottom: 1px solid var(--gray100);
+}
