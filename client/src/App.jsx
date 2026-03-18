@@ -105,12 +105,17 @@ function DigestMini({ cached }) {
       {/* Mood bar */}
       {d.mood && (
         <div className="mini-mood">
+          <div className="mini-mood-labels">
+            <span>Stressed {d.mood.stressed||0}%</span>
+            <span>Mixed {d.mood.mixed||0}%</span>
+            <span>Calm {d.mood.calm||0}%</span>
+          </div>
           <div className="mini-mood-bar">
             <div className="mood-seg stressed" style={{ width:`${d.mood.stressed||0}%` }}/>
             <div className="mood-seg mixed"    style={{ width:`${d.mood.mixed||0}%` }}/>
             <div className="mood-seg calm"     style={{ width:`${d.mood.calm||0}%` }}/>
           </div>
-          <span className="mini-mood-label">{d.mood.basis}</span>
+          {d.mood.basis && <span className="mini-mood-label">{d.mood.basis}</span>}
         </div>
       )}
 
@@ -121,8 +126,10 @@ function DigestMini({ cached }) {
 
 // ── DASHBOARD VIEW ────────────────────────────────────────────────────────
 function DashboardView({ chats, summaries, search }) {
+  const [onlyUpdated, setOnlyUpdated] = React.useState(false);
+  const visibleChats = onlyUpdated ? chats.filter(c => !!summaries[c.chat_id]) : chats;
   const groups = {};
-  chats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
+  visibleChats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
     .forEach(c => {
       const comm = c.community || 'Uncategorised';
       if (!groups[comm]) groups[comm] = [];
@@ -153,6 +160,17 @@ function DashboardView({ chats, summaries, search }) {
           <div className="dsb-num">{Object.values(summaries).reduce((n,s) => n+(s.digest?.signals?.spokeUp||0),0)}</div>
           <div className="dsb-lbl">Members active</div>
         </div>
+      </div>
+
+      {/* Filter bar */}
+      <div className="dash-filter-bar">
+        <span className="dash-filter-label">Show:</span>
+        <button className={`dash-filter-btn ${!onlyUpdated ? 'active' : ''}`} onClick={() => setOnlyUpdated(false)}>
+          All studios ({chats.length})
+        </button>
+        <button className={`dash-filter-btn ${onlyUpdated ? 'active' : ''}`} onClick={() => setOnlyUpdated(true)}>
+          With digest today ({Object.keys(summaries).length})
+        </button>
       </div>
 
       {/* Community sections */}
@@ -212,8 +230,9 @@ function DashboardView({ chats, summaries, search }) {
 function ChatView({ chats, summaries, activeChat, onSelect, search, messages, loadingMsgs }) {
   const [collapsed, setCollapsed] = useState({});
 
+  const visibleChats = onlyUpdated ? chats.filter(c => !!summaries[c.chat_id]) : chats;
   const groups = {};
-  chats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
+  visibleChats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
     .forEach(c => {
       const comm = c.community || 'Uncategorised';
       if (!groups[comm]) groups[comm] = [];
@@ -418,7 +437,19 @@ export default function App() {
 
   useEffect(() => {
     fetchChats(); fetchSummaries();
-    pollRef.current = setInterval(fetchSummaries, 15000);
+    // Poll every 8s only while job is running, stop when done
+    pollRef.current = setInterval(async () => {
+      const r = await fetch('/api/job-status').catch(() => null);
+      if (!r) return;
+      const d = await r.json().catch(() => null);
+      if (!d) return;
+      if (d.running) {
+        fetchSummaries();
+      } else {
+        clearInterval(pollRef.current);
+        fetchSummaries();
+      }
+    }, 8000);
     return () => clearInterval(pollRef.current);
   }, []);
 
@@ -439,7 +470,7 @@ export default function App() {
       const d = await r.json();
       setSummaries(d.summaries || {});
       setJobStatus({ running: d.running, lastRun: d.lastRun, date: d.date, count: d.count });
-      if (!d.running && d.count > 0) clearInterval(pollRef.current);
+      // polling managed by useEffect
     } catch {}
   }
 

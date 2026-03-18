@@ -32,8 +32,8 @@ input{font-family:var(--font);outline:none}
 .s-logo-text{font-size:16px;font-weight:700;color:var(--white);letter-spacing:-.3px;line-height:1.2}
 .s-logo-sub{font-size:10px;color:var(--nia300);letter-spacing:.3px}
 .header-center{flex:1;max-width:400px}
-.header-search{height:34px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
-.header-search input{color:var(--white)!important;font-size:13px}
+.header-search{height:34px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2)}
+.header-search input{color:var(--white)!important;font-size:13px;caret-color:var(--white)}
 .header-search input::placeholder{color:rgba(255,255,255,.4)!important}
 
 /* ── Topbar (job status + view toggle) ── */
@@ -145,6 +145,7 @@ input{font-family:var(--font);outline:none}
 .mini-more{font-size:10px;color:var(--gray400);font-style:italic;padding-left:13px}
 .mini-mood{margin-bottom:6px}
 .mini-mood-bar{height:6px;border-radius:9999px;overflow:hidden;display:flex;background:var(--gray100);margin-bottom:3px}
+.mini-mood-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--gray500);margin-bottom:2px}
 .mini-mood-label{font-size:10px;color:var(--gray400);font-style:italic;line-height:1.4}
 .mini-footer{font-size:10px;color:var(--gray400);border-top:1px solid var(--gray100);padding-top:6px;margin-top:4px}
 
@@ -199,3 +200,23 @@ input{font-family:var(--font);outline:none}
 .staff-badge{font-size:9px;padding:1px 6px;border-radius:9999px;background:var(--nia50);color:var(--nia600);border:1px solid var(--nia200);font-weight:700;text-transform:uppercase}
 .comm-badge-lg{font-size:11px;padding:3px 10px;border-radius:9999px;font-weight:700}
 .lang-pill{font-size:10px;padding:2px 8px;border-radius:9999px;background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.3);font-weight:600}
+
+/* ── Dashboard filter bar ── */
+.dash-filter-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 16px;
+}
+.dash-filter-label {
+  font-size: 12px; color: var(--gray500); font-weight: 500;
+}
+.dash-filter-btn {
+  padding: 5px 14px; border-radius: 9999px; font-size: 12px;
+  font-weight: 600; font-family: var(--font);
+  background: var(--white); border: 1.5px solid var(--gray200);
+  color: var(--gray500); transition: all .15s; cursor: pointer;
+}
+.dash-filter-btn:hover { border-color: var(--nia400); color: var(--nia500); }
+.dash-filter-btn.active {
+  background: var(--nia50); border-color: var(--nia400);
+  color: var(--nia600);
+}
