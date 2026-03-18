@@ -144,8 +144,13 @@ function DigestCard({ chat, cached, messages, loadingMsgs }) {
             <SignalPills signals={d.signals} />
           </div>
 
-          
-          {d.issues?.length > 0 && (
+          {/* Summary */}
+          {d.summary && (
+            <div className="summary-text-box">{d.summary}</div>
+          )}
+
+          {/* Issues */}
+          {d.issues?.length > 0 ? (
             <div className="issues-section">
               <div className="section-title">Issues raised</div>
               {d.issues.map((issue, i) => (
@@ -218,7 +223,7 @@ function DigestCard({ chat, cached, messages, loadingMsgs }) {
           <div className="msgs-hdr">Raw messages today ({messages.length})</div>
           <div className="msgs-list">
             {messages.slice(-30).reverse().map((msg, i) => {
-              const sender = msg.sender_name || msg.sender?.name || 'Unknown';
+              const sender = msg.resolved_name || msg.sender_name || msg.sender?.name || 'Member';
               const text   = msg.body || msg.text || msg.content || '';
               const ts     = msg.timestamp || msg.created_at || '';
               if (!text) return null;
