@@ -18,7 +18,6 @@ const periskopeHeaders = () => ({
   'Accept': 'application/json',
 });
 
-// ── GET /api/chats ──────────────────────────────────────────────────────────
 app.get('/api/chats', async (req, res) => {
   try {
     const limit = req.query.limit || 50;
@@ -32,13 +31,10 @@ app.get('/api/chats', async (req, res) => {
     res.json({ chats });
   } catch (err) {
     console.error('Chats error:', err.response?.data || err.message);
-    res.status(err.response?.status || 500).json({
-      error: err.response?.data?.message || err.message
-    });
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
   }
 });
 
-// ── GET /api/chats/:chatId/messages ─────────────────────────────────────────
 app.get('/api/chats/:chatId/messages', async (req, res) => {
   try {
     const { chatId } = req.params;
@@ -52,19 +48,14 @@ app.get('/api/chats/:chatId/messages', async (req, res) => {
     res.json({ messages });
   } catch (err) {
     console.error('Messages error:', err.response?.data || err.message);
-    res.status(err.response?.status || 500).json({
-      error: err.response?.data?.message || err.message
-    });
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
   }
 });
 
-// ── POST /api/summarise ──────────────────────────────────────────────────────
 app.post('/api/summarise', async (req, res) => {
   try {
     const { chatName, messages } = req.body;
-    if (!messages || !messages.length) {
-      return res.status(400).json({ error: 'No messages provided' });
-    }
+    if (!messages || !messages.length) return res.status(400).json({ error: 'No messages provided' });
 
     const transcript = messages
       .slice(-60)
@@ -76,9 +67,7 @@ app.post('/api/summarise', async (req, res) => {
       .filter(Boolean)
       .join('\n');
 
-    if (!transcript.trim()) {
-      return res.json({ summary: 'No text messages found to summarise.' });
-    }
+    if (!transcript.trim()) return res.json({ summary: 'No text messages found to summarise.' });
 
     const response = await axios.post(
       `${ANTHROPIC_BASE}/messages`,
@@ -87,7 +76,7 @@ app.post('/api/summarise', async (req, res) => {
         max_tokens: 1000,
         messages: [{
           role: 'user',
-          content: `Summarise this WhatsApp group chat in 4-6 clear bullet points. Focus on key topics discussed, decisions made, action items, and any important information shared.\n\nGroup: "${chatName}"\n\n${transcript}`
+          content: `Summarise this WhatsApp group chat in 4-6 clear bullet points. Focus on key topics discussed, decisions made, action items, and important information.\n\nGroup: "${chatName}"\n\n${transcript}`
         }]
       },
       {
@@ -103,19 +92,16 @@ app.post('/api/summarise', async (req, res) => {
     res.json({ summary });
   } catch (err) {
     console.error('Summarise error:', err.response?.data || err.message);
-    res.status(err.response?.status || 500).json({
-      error: err.response?.data?.message || err.message
-    });
+    res.status(err.response?.status || 500).json({ error: err.response?.data?.message || err.message });
   }
 });
 
-// ── Serve React in production ────────────────────────────────────────────────
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/build')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/build/index.html'));
-  });
-}
+// Serve React build in production
+const buildPath = path.join(__dirname, '../client/build');
+app.use(express.static(buildPath));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(buildPath, 'index.html'));
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
