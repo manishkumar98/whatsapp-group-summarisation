@@ -12,12 +12,16 @@ app.use(express.json());
 const PERISKOPE_BASE = 'https://api.periskope.app/v1';
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 
+// ── In-memory stores ───────────────────────────────────────────────────────
 let cache = {
   summaries: {},
   lastRun:   null,
   running:   false,
   date:      null,
 };
+
+// Contact map: phone -> { name, isInternal, labels, type }
+let contactMap = {};
 
 const periskopeHeaders = () => ({
   'Authorization': `Bearer ${process.env.PERISKOPE_API_KEY}`,
@@ -26,10 +30,96 @@ const periskopeHeaders = () => ({
   'Accept':        'application/json',
 });
 
-function buildPrompt(chatName, transcript, msgCount) {
-  return `You are an AI assistant for Nia, a workforce housing company in India. Analyse this WhatsApp group chat.
+// ── Load all contacts into memory ──────────────────────────────────────────
+async function loadContacts() {
+  console.log('[CONTACTS] Loading contact directory...');
+  let offset = 0;
+  const limit = 200;
+  let total   = 0;
+  contactMap  = {};
 
-Messages may be in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi, or any mix. Understand all languages. Respond ONLY in English.
+  try {
+    while (true) {
+      const res  = await axios.get(
+        `${PERISKOPE_BASE}/contacts?offset=${offset}&limit=${limit}`,
+        { headers: periskopeHeaders() }
+      );
+      const data     = res.data;
+      const contacts = data.contacts || data.data || (Array.isArray(data) ? data : []);
+      if (!contacts.length) break;
+
+      contacts.forEach(c => {
+        // contact_id is like "919876543210@c.us" — strip the @c.us
+        const raw   = c.contact_id || '';
+        const phone = raw.replace('@c.us', '').replace('@s.whatsapp.net', '');
+        if (!phone) return;
+
+        contactMap[phone] = {
+          name:       c.contact_name || null,
+          isInternal: c.is_internal  || false,
+          labels:     c.labels       || [],
+          type:       c.contact_type || 'user',
+        };
+        total++;
+      });
+
+      if (contacts.length < limit) break;
+      offset += limit;
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    console.log(`[CONTACTS] Loaded ${total} contacts`);
+  } catch (e) {
+    console.error('[CONTACTS] Failed to load:', e.message);
+  }
+}
+
+// ── Resolve sender name from message ──────────────────────────────────────
+function resolveSender(msg) {
+  // Try direct name fields first
+  const directName = msg.sender_name || msg.sender?.name;
+  if (directName && directName !== 'Unknown') return { name: directName, meta: lookupPhone(msg) };
+
+  // Try phone lookup
+  const phone = extractPhone(msg);
+  if (phone && contactMap[phone]) {
+    const c = contactMap[phone];
+    return { name: c.name || formatPhone(phone), meta: c };
+  }
+
+  // Fallback
+  return { name: formatPhone(phone) || 'Member', meta: null };
+}
+
+function extractPhone(msg) {
+  const raw = msg.sender_phone || msg.sender?.phone || msg.from || msg.org_phone || '';
+  return raw.replace(/\D/g, '').replace(/^91/, '') || null;
+}
+
+function lookupPhone(msg) {
+  const phone = extractPhone(msg);
+  return phone && contactMap[phone] ? contactMap[phone] : null;
+}
+
+function formatPhone(phone) {
+  if (!phone) return 'Member';
+  return `+${phone.slice(0, 2)} ****${phone.slice(-4)}`;
+}
+
+function senderLabel(name, meta) {
+  if (!meta) return name;
+  const tags = [];
+  if (meta.isInternal) tags.push('Staff');
+  if (meta.labels?.length) tags.push(...meta.labels.slice(0, 2));
+  return tags.length ? `${name} (${tags.join(', ')})` : name;
+}
+
+// ── Claude prompt ─────────────────────────────────────────────────────────
+function buildPrompt(chatName, transcript, msgCount, hasContacts) {
+  return `You are an AI assistant for Nia, a workforce housing company in India. Analyse this WhatsApp group chat from one of Nia's worker hostels or operational groups.
+
+Messages may be in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi, or any mix. Understand all. Respond ONLY in English.
+${hasContacts ? 'Sender labels: names marked (Staff) are Nia employees. Others are members/workers. Labels like warden, supervisor indicate roles.' : ''}
 
 Group: "${chatName}"
 Messages in last 24 hours: ${msgCount}
@@ -37,45 +127,47 @@ Messages in last 24 hours: ${msgCount}
 ${transcript}
 ---
 
-Respond ONLY with a valid JSON object — no markdown, no backticks, no explanation.
+Respond ONLY with a valid JSON object. No markdown, no backticks.
 
 {
   "signals": {
-    "urgent": <integer — safety/water/power/health issues with no resolution>,
-    "pending": <integer — complaints open with no response>,
-    "resolved": <integer — issues fixed or acknowledged today>,
+    "urgent": <integer — unresolved safety/water/power/health/harassment issues>,
+    "pending": <integer — complaints open, no staff response yet>,
+    "resolved": <integer — issues acknowledged or fixed today>,
     "spokeUp": <integer — distinct members who sent messages>
   },
   "issues": [
     {
       "title": "<issue title in English, max 8 words>",
-      "detail": "<who raised it, status, follow-ups — max 15 words>",
-      "priority": "urgent" | "pending" | "resolved"
+      "detail": "<who raised it, role if known, status — max 15 words>",
+      "priority": "urgent" | "pending" | "resolved",
+      "raisedBy": "<name of person who raised it, or 'Multiple members'>"
     }
   ],
   "announcements": [
-    "<key announcement or information shared, in English, max 20 words>"
+    "<key announcement or notice in English, max 20 words>"
   ],
+  "staffActivity": "<one sentence on what staff/wardens did or said today, or null if no staff active>",
   "mood": {
     "stressed": <0-100>,
     "mixed": <0-100>,
     "calm": <0-100>,
-    "basis": "<one sentence explaining the mood assessment in English>"
+    "basis": "<one sentence explaining mood in English>"
   },
-  "language": "<primary language detected, e.g. Hindi, Tamil, English, Mixed Hindi-English>",
+  "language": "<primary language, e.g. Hindi, Tamil, English, Mixed Hindi-English>",
   "summary": "<2-3 sentence plain English summary of what this group discussed today>"
 }
 
 Rules:
-- issues: max 6, ordered urgent first. Include even minor complaints.
-- announcements: max 3. Only factual notices/info shared.
-- mood percentages MUST sum to exactly 100.
-- If the chat is mostly casual (greetings, jokes), set mood calm-heavy and note it in basis.
-- If truly nothing happened, issues and announcements can be empty arrays [].
-- Always fill "summary" — describe what the group talked about even if trivial.
-- Translate everything to English.`;
+- issues: max 6, urgent first. Include even minor complaints if raised seriously.
+- announcements: max 3. Only factual notices/info.
+- mood must sum to exactly 100.
+- Always fill summary — even for casual chats.
+- Translate everything to English.
+- If staff responded to a complaint, mark it resolved.`;
 }
 
+// ── Run summarisation job ─────────────────────────────────────────────────
 async function runJob(label = 'CRON') {
   if (cache.running) { console.log(`[${label}] Already running`); return; }
   cache.running   = true;
@@ -87,7 +179,7 @@ async function runJob(label = 'CRON') {
   try {
     const res = await axios.get(`${PERISKOPE_BASE}/chats?limit=100`, { headers: periskopeHeaders() });
     chats = res.data.chats || res.data.data || res.data.results || (Array.isArray(res.data) ? res.data : []);
-    console.log(`[${label}] ${chats.length} chats`);
+    console.log(`[${label}] ${chats.length} chats, ${Object.keys(contactMap).length} contacts loaded`);
   } catch (e) {
     console.error(`[${label}] Fetch chats failed:`, e.message);
     cache.running = false;
@@ -113,32 +205,31 @@ async function runJob(label = 'CRON') {
         return ts ? new Date(ts).getTime() >= since : true;
       });
 
-      // Skip if truly empty
-      if (messages.length < 3) {
-        console.log(`[${label}] Skip "${chatName}" — only ${messages.length} msgs`);
-        skipped++;
-        continue;
-      }
+      if (messages.length < 3) { skipped++; continue; }
 
-      // Count unique senders — use phone as fallback for name
-      const senderSet = new Set();
+      // Build sender set with resolved names
+      const senderSet  = new Set();
+      const staffActive = new Set();
+
       const transcript = messages.slice(-80).map(m => {
-        const name   = m.sender_name || m.sender?.name || null;
-        const phone  = m.sender_phone || m.sender?.phone || m.org_phone || null;
-        const sender = name || (phone ? phone.replace(/\D/g,'').slice(-4).padStart(4,'*') : 'Member');
-        senderSet.add(sender);
-        const text   = m.body || m.text || m.content || '';
-        const ts     = m.timestamp || m.created_at || '';
-        const time   = ts ? new Date(ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '';
-        return text ? `[${time}] ${sender}: ${text}` : null;
+        const { name, meta } = resolveSender(m);
+        const label  = senderLabel(name, meta);
+        senderSet.add(name);
+        if (meta?.isInternal) staffActive.add(name);
+        const text = m.body || m.text || m.content || '';
+        const ts   = m.timestamp || m.created_at || '';
+        const time = ts ? new Date(ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '';
+        return text ? `[${time}] ${label}: ${text}` : null;
       }).filter(Boolean).join('\n');
+
+      const hasContacts = Object.keys(contactMap).length > 0;
 
       const aiRes = await axios.post(
         `${ANTHROPIC_BASE}/messages`,
         {
           model:      'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          messages: [{ role: 'user', content: buildPrompt(chatName, transcript, messages.length) }]
+          messages:   [{ role: 'user', content: buildPrompt(chatName, transcript, messages.length, hasContacts) }]
         },
         {
           headers: {
@@ -153,32 +244,28 @@ async function runJob(label = 'CRON') {
       const clean = raw.replace(/```json|```/g, '').trim();
       let digest;
       try { digest = JSON.parse(clean); }
-      catch (pe) {
-        console.error(`[${label}] JSON parse failed for "${chatName}":`, pe.message);
-        skipped++; continue;
-      }
+      catch { console.error(`[${label}] JSON parse failed for "${chatName}"`); skipped++; continue; }
 
-      // Patch spokeUp from actual data
+      // Patch from real data
       if (!digest.signals) digest.signals = {};
       digest.signals.spokeUp = senderSet.size || digest.signals.spokeUp || 0;
 
-      // Ensure mood sums to 100
+      // Fix mood sum
       if (digest.mood) {
-        const sum = (digest.mood.stressed||0) + (digest.mood.mixed||0) + (digest.mood.calm||0);
-        if (sum !== 100 && sum > 0) {
-          digest.mood.calm = 100 - (digest.mood.stressed||0) - (digest.mood.mixed||0);
-        }
+        const s = (digest.mood.stressed||0) + (digest.mood.mixed||0) + (digest.mood.calm||0);
+        if (s !== 100 && s > 0) digest.mood.calm = Math.max(0, 100 - (digest.mood.stressed||0) - (digest.mood.mixed||0));
       }
 
       cache.summaries[chatId] = {
         chatName,
         chatType:    chat.chat_type || (chatId.endsWith('@g.us') ? 'group' : 'direct'),
         msgCount:    messages.length,
+        staffCount:  staffActive.size,
         generatedAt: new Date().toISOString(),
         digest,
       };
 
-      console.log(`[${label}] ✓ "${chatName}" (${messages.length} msgs, ${digest.language || '?'})`);
+      console.log(`[${label}] ✓ "${chatName}" (${messages.length} msgs, staff:${staffActive.size}, lang:${digest.language||'?'})`);
       success++;
       await new Promise(r => setTimeout(r, 400));
 
@@ -196,17 +283,29 @@ async function runJob(label = 'CRON') {
   console.log(`[${label}] Done in ${dur}s — ✓${success} skip:${skipped} fail:${failed}\n`);
 }
 
-// Cron: 6:30 AM IST = 01:00 UTC
-cron.schedule('0 1 * * *', () => {
+// ── Cron: 6:30 AM IST = 01:00 UTC ─────────────────────────────────────────
+cron.schedule('0 1 * * *', async () => {
+  await loadContacts();
   runJob('CRON').catch(e => console.error('[CRON]', e));
 }, { timezone: 'UTC' });
 
-// Boot job
-console.log('[BOOT] Running initial job in 5s...');
-setTimeout(() => runJob('BOOT').catch(e => console.error('[BOOT]', e)), 5000);
+// ── Boot: load contacts first, then run job ────────────────────────────────
+console.log('[BOOT] Starting in 5s...');
+setTimeout(async () => {
+  await loadContacts();
+  runJob('BOOT').catch(e => console.error('[BOOT]', e));
+}, 5000);
 
+// ── Routes ─────────────────────────────────────────────────────────────────
 app.get('/api/summaries', (req, res) => {
-  res.json({ summaries: cache.summaries, lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length });
+  res.json({
+    summaries:    cache.summaries,
+    lastRun:      cache.lastRun,
+    date:         cache.date,
+    running:      cache.running,
+    count:        Object.keys(cache.summaries).length,
+    contactCount: Object.keys(contactMap).length,
+  });
 });
 
 app.get('/api/chats', async (req, res) => {
@@ -219,31 +318,43 @@ app.get('/api/chats', async (req, res) => {
 
 app.get('/api/chats/:chatId/messages', async (req, res) => {
   try {
-    const r    = await axios.get(`${PERISKOPE_BASE}/chats/${encodeURIComponent(req.params.chatId)}/messages?limit=200`, { headers: periskopeHeaders() });
-    const all  = r.data.messages || r.data.data || r.data.results || [];
+    const r    = await axios.get(
+      `${PERISKOPE_BASE}/chats/${encodeURIComponent(req.params.chatId)}/messages?limit=200`,
+      { headers: periskopeHeaders() }
+    );
+    const all   = r.data.messages || r.data.data || r.data.results || [];
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    const messages = all.filter(m => { const ts = m.timestamp || m.created_at || ''; return ts ? new Date(ts).getTime() >= since : true; });
-    res.json({ messages });
+    const msgs  = all.filter(m => { const ts = m.timestamp || m.created_at || ''; return ts ? new Date(ts).getTime() >= since : true; });
+
+    // Enrich messages with resolved sender names
+    const enriched = msgs.map(m => {
+      const { name, meta } = resolveSender(m);
+      return { ...m, resolved_name: senderLabel(name, meta), is_staff: meta?.isInternal || false };
+    });
+
+    res.json({ messages: enriched });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/job-status', (req, res) => {
-  res.json({ lastRun: cache.lastRun, date: cache.date, running: cache.running, count: Object.keys(cache.summaries).length, nextRun: '01:00 UTC (6:30 AM IST)' });
+  res.json({
+    lastRun:      cache.lastRun,
+    date:         cache.date,
+    running:      cache.running,
+    count:        Object.keys(cache.summaries).length,
+    contactCount: Object.keys(contactMap).length,
+    nextRun:      '01:00 UTC (6:30 AM IST)',
+  });
 });
 
-
-// ── DEBUG: see raw message structure ──────────────────────────────────────
-app.get('/api/debug/:chatId', async (req, res) => {
-  try {
-    const r   = await axios.get(`${PERISKOPE_BASE}/chats/${encodeURIComponent(req.params.chatId)}/messages?limit=5`, { headers: periskopeHeaders() });
-    const all = r.data.messages || r.data.data || r.data.results || [];
-    // Return first 3 messages with ALL fields so we can see the structure
-    res.json({ 
-      raw: all.slice(0, 3),
-      keys: all[0] ? Object.keys(all[0]) : [],
-      senderKeys: all[0]?.sender ? Object.keys(all[0].sender) : 'no sender object'
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+app.get('/api/contacts/stats', (req, res) => {
+  const contacts = Object.values(contactMap);
+  res.json({
+    total:    contacts.length,
+    internal: contacts.filter(c => c.isInternal).length,
+    labeled:  contacts.filter(c => c.labels?.length > 0).length,
+    labels:   [...new Set(contacts.flatMap(c => c.labels))].sort(),
+  });
 });
 
 const buildPath = path.join(__dirname, '../client/build');

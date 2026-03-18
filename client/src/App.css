@@ -193,3 +193,22 @@ input  { font-family: var(--font); outline: none; }
   font-style: italic;
   border-bottom: 1px solid var(--gray100);
 }
+
+/* ── Staff badge ── */
+.staff-badge {
+  font-size: 9px; padding: 1px 6px; border-radius: 9999px;
+  background: var(--nia50); color: var(--nia600);
+  border: 1px solid var(--nia200); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0;
+}
+
+/* ── Staff activity ── */
+.staff-activity-section {
+  padding: 12px 20px; border-bottom: 1px solid var(--gray100);
+}
+.staff-activity-text {
+  font-size: 13px; color: var(--nia600);
+  background: var(--nia50); border-left: 3px solid var(--nia400);
+  padding: 8px 12px; border-radius: 0 6px 6px 0;
+  line-height: 1.5; margin-top: 8px;
+}

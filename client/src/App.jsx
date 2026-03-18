@@ -174,6 +174,14 @@ function DigestCard({ chat, cached, messages, loadingMsgs }) {
             </div>
           )}
 
+          {/* Staff activity */}
+          {d.staffActivity && (
+            <div className="staff-activity-section">
+              <div className="section-title">Staff activity today</div>
+              <div className="staff-activity-text">{d.staffActivity}</div>
+            </div>
+          )}
+
           {/* Mood */}
           {d.mood && (
             <div className="mood-section">
@@ -218,6 +226,7 @@ function DigestCard({ chat, cached, messages, loadingMsgs }) {
                 <div key={i} className="msg-item">
                   <div className="msg-meta">
                     <span className="msg-sender">{sender}</span>
+                    {msg.is_staff && <span className="staff-badge">Staff</span>}
                     <span className="msg-time">{timeAgo(ts)}</span>
                   </div>
                   <div className="msg-text">{text}</div>
