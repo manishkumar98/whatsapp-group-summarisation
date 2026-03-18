@@ -518,3 +518,99 @@
   .main { display: none; }
   .panel { padding: 16px; }
 }
+
+/* ── Job status bar ───────────────────────────────────────── */
+.job-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 32px;
+  background: var(--nia50);
+  border-bottom: 1px solid var(--nia100);
+  font-size: 13px;
+  color: var(--nia600);
+  gap: 12px;
+}
+
+.job-bar-left { display: flex; align-items: center; gap: 8px; }
+.job-next { color: var(--gray400); font-size: 12px; }
+.dot-warn { background: var(--warning) !important; box-shadow: 0 0 6px rgba(198,138,26,0.5) !important; }
+
+.run-now-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 14px;
+  background: var(--nia500);
+  color: var(--white);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.run-now-btn:hover:not(:disabled) { background: var(--nia600); }
+.run-now-btn:disabled { opacity: 0.55; cursor: default; }
+
+/* ── Today badge in sidebar ───────────────────────────────── */
+.today-badge {
+  margin-top: 8px;
+  font-size: 11px;
+  padding: 3px 10px;
+  background: var(--saffron50);
+  color: var(--saffron600);
+  border: 1px solid var(--saffron100);
+  border-radius: 9999px;
+  display: inline-block;
+  font-weight: 600;
+}
+
+/* ── Summary dot on chat item ─────────────────────────────── */
+.summary-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--flow500);
+  flex-shrink: 0;
+}
+
+/* ── No summary box ───────────────────────────────────────── */
+.no-summary-box {
+  background: var(--gray50);
+  border: 1px dashed var(--gray200);
+  border-radius: 12px;
+  padding: 20px 24px;
+  font-size: 14px;
+  color: var(--gray500);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+/* ── History section ──────────────────────────────────────── */
+.history-section {
+  background: var(--white);
+  border: 1px solid var(--gray100);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.history-item {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--gray100);
+}
+.history-item:last-child { border-bottom: none; }
+
+.history-date {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nia400);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.history-summary {
+  font-size: 13px;
+  color: var(--gray500);
+  line-height: 1.5;
+}
