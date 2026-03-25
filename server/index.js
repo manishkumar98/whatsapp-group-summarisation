@@ -5,6 +5,7 @@ const axios    = require('axios');
 const path     = require('path');
 const cron     = require('node-cron');
 const { getCommunity, COMMUNITY_COLORS } = require('./community-map');
+const { saveSummaries, loadSummaries }   = require('./db');
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,15 @@ const PERISKOPE_BASE = 'https://api.periskope.app/v1';
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 
 let cache = { summaries: {}, lastRun: null, running: false, date: null };
+
+// Restore last known good data from SQLite so the dashboard is never blank on restart
+const saved = loadSummaries();
+if (saved) {
+  cache.summaries = saved.summaries;
+  cache.lastRun   = saved.lastRun;
+  cache.date      = saved.date;
+}
+
 let contactMap = {};
 
 const periskopeHeaders = () => ({
@@ -195,6 +205,7 @@ async function runJob(label = 'CRON') {
   cache.date    = start.toISOString().split('T')[0];
   cache.running = false;
   console.log(`[${label}] Done — ✓${success} skip:${skipped} fail:${failed}\n`);
+  if (success > 0) saveSummaries(cache.summaries, cache.lastRun, cache.date);
 }
 
 cron.schedule('0 1 * * *', async () => { await loadContacts(); runJob('CRON').catch(console.error); }, { timezone: 'UTC' });
