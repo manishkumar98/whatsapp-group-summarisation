@@ -76,9 +76,8 @@ function senderLabel(name, meta) {
 
 function buildPrompt(chatName, community, transcript, msgCount) {
   return `You are an AI assistant for Nia, a workforce housing company in India.
-This is a WhatsApp group for a Nia Studio in the ${community} community.
-The group is named after the warden/supervisor managing that studio: "${chatName}".
-Messages may be in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi or any mix. Respond ONLY in English.
+This is a WhatsApp group for a Nia Studio or Community in the ${community} community.
+Messages in English, Hindi, Tamil, Telugu, Kannada, Bengali, Odia, Marathi or mix. Respond ONLY in English.
 
 Messages in last 24 hours: ${msgCount}
 ---
@@ -97,14 +96,14 @@ Respond ONLY with valid JSON. No markdown, no backticks.
   "issues": [
     { "title": "<max 8 words>", "detail": "<who raised, status — max 15 words>", "priority": "urgent"|"pending"|"resolved", "raisedBy": "<name or Multiple members>" }
   ],
-  "announcements": ["<max 20 words each>"],
+  "announcements": ["<max 20 words each — prioritize details about posters or images sent by admins/staff if they appear in the transcript>"],
   "staffActivity": "<one sentence on staff/warden actions today, or null>",
   "mood": { "stressed": <0-100>, "mixed": <0-100>, "calm": <0-100>, "basis": "<one sentence>" },
   "language": "<primary language detected>",
-  "summary": "<2-3 sentence summary in English>"
+  "summary": "<2-3 sentence summary in English emphasizing any important posters/notices shared by admins>"
 }
 
-Rules: issues max 6 urgent-first. announcements max 3. mood must sum to 100. Always fill summary.`;
+Rules: issues max 6 urgent-first. announcements max 4. mood must sum to 100. Always fill summary.`;
 }
 
 async function runJob(label = 'CRON') {
@@ -122,10 +121,15 @@ async function runJob(label = 'CRON') {
       const id   = c.chat_id || c.id || '';
       const name = (c.chat_name || c.name || '').toLowerCase();
       const isGroup = id.endsWith('@g.us') || c.chat_type === 'group';
-      const isAnnouncement = name.includes('announcement') || name.includes('nia wellington community') || name.includes('nia deccan community') || name.includes('nia rajputana community') || name.includes('nia coromandel community');
-      return isGroup && !isAnnouncement;
+      // Include studio groups AND community announcement groups
+      const isCommunityGroup = name.includes('announcement') || name.includes('nia wellington community') || name.includes('nia deccan community') || name.includes('nia rajputana community') || name.includes('nia coromandel community');
+      return isGroup; // We now take all groups and filter further logically if needed
+    }).map(c => {
+      const name = (c.chat_name || c.name || '').toLowerCase();
+      const isAnnounce = name.includes('announcement') || name.includes('nia wellington community') || name.includes('nia deccan community') || name.includes('nia rajputana community') || name.includes('nia coromandel community');
+      return { ...c, isAnnouncementGroup: isAnnounce };
     });
-    console.log(`[${label}] ${chats.length} studio groups`);
+    console.log(`[${label}] ${chats.length} relevant groups`);
   } catch (e) { console.error(`[${label}] Chats failed:`, e.message); cache.running = false; return; }
 
   const since = Date.now() - 24 * 60 * 60 * 1000;
@@ -142,7 +146,8 @@ async function runJob(label = 'CRON') {
       const all    = msgRes.data.messages || msgRes.data.data || msgRes.data.results || [];
       const msgs   = all.filter(m => { const ts = m.timestamp || m.created_at || ''; return ts ? new Date(ts).getTime() >= since : true; });
 
-      if (msgs.length < 3) { skipped++; continue; }
+      if (msgs.length < 1 && chat.isAnnouncementGroup) { /* process even 1 msg for announce */ }
+      else if (msgs.length < 3) { skipped++; continue; }
 
       const senderSet = new Set(); const staffSet = new Set();
       const transcript = msgs.slice(-80).map(m => {
@@ -150,14 +155,18 @@ async function runJob(label = 'CRON') {
         const label = senderLabel(name, meta);
         senderSet.add(name);
         if (meta?.isInternal) staffSet.add(name);
-        const text = m.body || m.text || m.content || '';
+        
+        let text = m.body || m.text || m.content || '';
+        const isImage = m.type === 'image' || m.message_type === 'image' || (m.media && m.media.type === 'image');
+        if (isImage) text = `[POSTER/IMAGE] ${text}`.trim();
+        
         const ts   = m.timestamp || m.created_at || '';
         const time = ts ? new Date(ts).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) : '';
         return text ? `[${time}] ${label}: ${text}` : null;
       }).filter(Boolean).join('\n');
 
       const aiRes = await axios.post(`${ANTHROPIC_BASE}/messages`, {
-        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+        model: 'claude-3-5-sonnet-20241022', max_tokens: 1000,
         messages: [{ role: 'user', content: buildPrompt(chatName, community, transcript, msgs.length) }]
       }, { headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' } });
 
@@ -173,7 +182,7 @@ async function runJob(label = 'CRON') {
         if (s !== 100 && s > 0) digest.mood.calm = Math.max(0, 100-(digest.mood.stressed||0)-(digest.mood.mixed||0));
       }
 
-      cache.summaries[chatId] = { chatName, community, chatType: 'group', msgCount: msgs.length, staffCount: staffSet.size, generatedAt: new Date().toISOString(), digest };
+      cache.summaries[chatId] = { chatName, community, chatType: chat.isAnnouncementGroup ? 'announcement' : 'group', msgCount: msgs.length, staffCount: staffSet.size, generatedAt: new Date().toISOString(), digest };
       console.log(`[${label}] ✓ [${community}] "${chatName}" (${msgs.length} msgs)`);
       success++;
       await new Promise(r => setTimeout(r, 400));

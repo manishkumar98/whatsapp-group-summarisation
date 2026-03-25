@@ -189,9 +189,13 @@ function DashboardView({ chats, summaries, search }) {
           {COMMUNITY_ORDER.filter(c => groups[c]?.length > 0).map(comm => {
             const color = COMMUNITY_COLORS[comm];
             const commChats = groups[comm];
+            
+            const announceGroups = commChats.filter(c => summaries[c.chat_id]?.chatType === 'announcement');
+            const studioGroups   = commChats.filter(c => summaries[c.chat_id]?.chatType !== 'announcement');
+            
             const commSummaries = commChats.map(c => summaries[c.chat_id]).filter(Boolean);
-            const commUrgent = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.urgent||0), 0);
-            const commPending = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.pending||0), 0);
+            const commUrgent = studioGroups.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.urgent||0), 0);
+            const commPending = studioGroups.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.pending||0), 0);
             
             return (
               <div key={comm} className="comm-summary-card" style={{ borderLeftColor: color.primary }}>
@@ -200,16 +204,37 @@ function DashboardView({ chats, summaries, search }) {
                   <div className="comm-stat-pills">
                     {commUrgent > 0 && <span className="csp-pill urgent">{commUrgent} Urgent</span>}
                     {commPending > 0 && <span className="csp-pill pending">{commPending} Pending</span>}
-                    <span className="csp-pill ready">{commChats.length} Studios</span>
+                    <span className="csp-pill ready">{studioGroups.length} Studios</span>
                   </div>
                 </div>
                 <div className="comm-summary-body">
+                  {announceGroups.length > 0 && (
+                    <div className="comm-announcements-area">
+                      <div className="section-title">Community Announcements & Posters</div>
+                      {announceGroups.map(g => {
+                        const d = summaries[g.chat_id]?.digest;
+                        return (
+                          <div key={g.chat_id} className="announce-group-card">
+                            {d?.announcements?.map((a, i) => (
+                              <div key={i} className="announce-item">
+                                <span className="announce-bullet">📢</span>
+                                <span className="announce-text">{a}</span>
+                              </div>
+                            ))}
+                            {d?.summary && <div className="announce-summary-note">{d.summary}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <div className="comm-aggregate-summary">
-                    <strong>Community Pulse:</strong> {commSummaries.map(s => s.digest?.summary).filter(Boolean).join(' ')}
+                    <strong>Community Pulse:</strong> {studioGroups.map(c => summaries[c.chat_id]?.digest?.summary).filter(Boolean).join(' ')}
                   </div>
+
                   <div className="comm-studio-issues">
                     <div className="section-title">Issues by Studio</div>
-                    {commChats.map(chat => {
+                    {studioGroups.map(chat => {
                       const d = summaries[chat.chat_id]?.digest;
                       if (!d?.issues?.length) return null;
                       return (
