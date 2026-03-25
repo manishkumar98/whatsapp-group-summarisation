@@ -146,8 +146,7 @@ async function runJob(label = 'CRON') {
       const all    = msgRes.data.messages || msgRes.data.data || msgRes.data.results || [];
       const msgs   = all.filter(m => { const ts = m.timestamp || m.created_at || ''; return ts ? new Date(ts).getTime() >= since : true; });
 
-      if (msgs.length < 1 && chat.isAnnouncementGroup) { /* process even 1 msg for announce */ }
-      else if (msgs.length < 3) { skipped++; continue; }
+      if (msgs.length < 1) { skipped++; continue; }
 
       const senderSet = new Set(); const staffSet = new Set();
       const transcript = msgs.slice(-80).map(m => {
@@ -166,7 +165,7 @@ async function runJob(label = 'CRON') {
       }).filter(Boolean).join('\n');
 
       const aiRes = await axios.post(`${ANTHROPIC_BASE}/messages`, {
-        model: 'claude-3-5-sonnet-20241022', max_tokens: 1000,
+        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
         messages: [{ role: 'user', content: buildPrompt(chatName, community, transcript, msgs.length) }]
       }, { headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' } });
 
@@ -186,7 +185,10 @@ async function runJob(label = 'CRON') {
       console.log(`[${label}] ✓ [${community}] "${chatName}" (${msgs.length} msgs)`);
       success++;
       await new Promise(r => setTimeout(r, 400));
-    } catch (e) { console.error(`[${label}] ✗ "${chatName}":`, e.message); failed++; }
+    } catch (e) { 
+      console.error(`[${label}] ✗ "${chatName}":`, e.message);
+      failed++; 
+    }
   }
 
   cache.lastRun = start.toISOString();
