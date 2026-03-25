@@ -130,8 +130,12 @@ function DigestMini({ cached }) {
 
 // ── DASHBOARD VIEW ────────────────────────────────────────────────────────
 function DashboardView({ chats, summaries, search }) {
-  const [onlyUpdated, setOnlyUpdated] = React.useState(false);
-  const visibleChats = onlyUpdated ? chats.filter(c => !!summaries[c.chat_id]) : chats;
+  const [filterMode, setFilterMode] = React.useState('updated');
+  
+  const visibleChats = filterMode === 'all' 
+    ? chats 
+    : chats.filter(c => !!summaries[c.chat_id]);
+
   const groups = {};
   visibleChats.filter(c => (c.chat_name||c.name||'').toLowerCase().includes(search.toLowerCase()))
     .forEach(c => {
@@ -169,63 +173,119 @@ function DashboardView({ chats, summaries, search }) {
       {/* Filter bar */}
       <div className="dash-filter-bar">
         <span className="dash-filter-label">Show:</span>
-        <button className={`dash-filter-btn ${!onlyUpdated ? 'active' : ''}`} onClick={() => setOnlyUpdated(false)}>
-          All studios ({chats.length})
-        </button>
-        <button className={`dash-filter-btn ${onlyUpdated ? 'active' : ''}`} onClick={() => setOnlyUpdated(true)}>
+        <button className={`dash-filter-btn ${filterMode === 'updated' ? 'active' : ''}`} onClick={() => setFilterMode('updated')}>
           With digest today ({Object.keys(summaries).length})
+        </button>
+        <button className={`dash-filter-btn ${filterMode === 'community' ? 'active' : ''}`} onClick={() => setFilterMode('community')}>
+          Community Summary
+        </button>
+        <button className={`dash-filter-btn ${filterMode === 'all' ? 'active' : ''}`} onClick={() => setFilterMode('all')}>
+          All studios ({chats.length})
         </button>
       </div>
 
-      {/* Community sections */}
-      {COMMUNITY_ORDER.filter(c => groups[c]?.length > 0).map(comm => {
-        const color    = COMMUNITY_COLORS[comm];
-        const commChats = groups[comm];
-        const commUrgent  = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.urgent||0),  0);
-        const commPending = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.pending||0), 0);
-
-        return (
-          <div key={comm} className="dash-community">
-            <div className="dash-comm-header" style={{ borderLeftColor: color.primary }}>
-              <div className="dash-comm-title-row">
-                <span className="dash-comm-name" style={{ color: color.primary }}>{comm} Community</span>
-                <span className="dash-comm-badge" style={{ background: color.light, color: color.primary, border:`1px solid ${color.primary}33` }}>
-                  {color.label} · {commChats.length} studios
-                </span>
-              </div>
-              <div className="dash-comm-signals">
-                {commUrgent  > 0 && <span className="spill spill-urgent">{commUrgent} urgent</span>}
-                {commPending > 0 && <span className="spill spill-pending">{commPending} pending</span>}
-                {commUrgent === 0 && commPending === 0 && <span className="spill spill-resolved">All clear</span>}
-              </div>
-            </div>
-
-            <div className="dash-studios-grid">
-              {commChats.map(chat => {
-                const cached = summaries[chat.chat_id];
-                const name   = chat.chat_name || chat.name || 'Unknown';
-                const urgent = cached?.digest?.signals?.urgent || 0;
-                const pending= cached?.digest?.signals?.pending|| 0;
-                return (
-                  <div key={chat.chat_id} className={`studio-card ${urgent > 0 ? 'has-urgent' : pending > 0 ? 'has-pending' : ''}`}
-                    style={{ borderTopColor: urgent > 0 ? 'var(--urgent)' : pending > 0 ? 'var(--pending)' : color.primary }}>
-                    <div className="studio-card-header">
-                      <Avatar name={name} size={34} community={comm}/>
-                      <div className="studio-card-meta">
-                        <div className="studio-name">{name}</div>
-                        <div className="studio-sub">{cached ? `${cached.msgCount} msgs today` : 'No activity'}</div>
-                      </div>
-                      {urgent > 0  && <span className="sc-badge urgent">{urgent}U</span>}
-                      {pending > 0 && <span className="sc-badge pending">{pending}P</span>}
-                    </div>
-                    <DigestMini cached={cached}/>
+      {filterMode === 'community' ? (
+        <div className="comm-summary-grid">
+          {COMMUNITY_ORDER.filter(c => groups[c]?.length > 0).map(comm => {
+            const color = COMMUNITY_COLORS[comm];
+            const commChats = groups[comm];
+            const commSummaries = commChats.map(c => summaries[c.chat_id]).filter(Boolean);
+            const commUrgent = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.urgent||0), 0);
+            const commPending = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.pending||0), 0);
+            
+            return (
+              <div key={comm} className="comm-summary-card" style={{ borderLeftColor: color.primary }}>
+                <div className="comm-summary-hdr">
+                  <span className="dash-comm-name" style={{ color: color.primary }}>{comm} Community</span>
+                  <div className="comm-stat-pills">
+                    {commUrgent > 0 && <span className="csp-pill urgent">{commUrgent} Urgent</span>}
+                    {commPending > 0 && <span className="csp-pill pending">{commPending} Pending</span>}
+                    <span className="csp-pill ready">{commChats.length} Studios</span>
                   </div>
-                );
-              })}
+                </div>
+                <div className="comm-summary-body">
+                  <div className="comm-aggregate-summary">
+                    <strong>Community Pulse:</strong> {commSummaries.map(s => s.digest?.summary).filter(Boolean).join(' ')}
+                  </div>
+                  <div className="comm-studio-issues">
+                    <div className="section-title">Issues by Studio</div>
+                    {commChats.map(chat => {
+                      const d = summaries[chat.chat_id]?.digest;
+                      if (!d?.issues?.length) return null;
+                      return (
+                        <div key={chat.chat_id} className="cs-issue-group">
+                          <div className="cs-studio-name">
+                            <Avatar name={chat.chat_name||chat.name} size={18} community={comm}/>
+                            {chat.chat_name || chat.name}
+                          </div>
+                          <div className="cs-issue-list">
+                            {d.issues.map((issue, i) => (
+                              <div key={i} className="cs-issue-item">
+                                <span className={`cs-issue-dot ${issue.priority}`}/>
+                                <span>{issue.title}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Existing Community Sections Grid */
+        COMMUNITY_ORDER.filter(c => groups[c]?.length > 0).map(comm => {
+          const color    = COMMUNITY_COLORS[comm];
+          const commChats = groups[comm];
+          const commUrgent  = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.urgent||0),  0);
+          const commPending = commChats.reduce((n,c) => n+(summaries[c.chat_id]?.digest?.signals?.pending||0), 0);
+
+          return (
+            <div key={comm} className="dash-community">
+              <div className="dash-comm-header" style={{ borderLeftColor: color.primary }}>
+                <div className="dash-comm-title-row">
+                  <span className="dash-comm-name" style={{ color: color.primary }}>{comm} Community</span>
+                  <span className="dash-comm-badge" style={{ background: color.light, color: color.primary, border:`1px solid ${color.primary}33` }}>
+                    {color.label} · {commChats.length} studios
+                  </span>
+                </div>
+                <div className="dash-comm-signals">
+                  {commUrgent  > 0 && <span className="spill spill-urgent">{commUrgent} urgent</span>}
+                  {commPending > 0 && <span className="spill spill-pending">{commPending} pending</span>}
+                  {commUrgent === 0 && commPending === 0 && <span className="spill spill-resolved">All clear</span>}
+                </div>
+              </div>
+
+              <div className="dash-studios-grid">
+                {commChats.map(chat => {
+                  const cached = summaries[chat.chat_id];
+                  const name   = chat.chat_name || chat.name || 'Unknown';
+                  const urgent = cached?.digest?.signals?.urgent || 0;
+                  const pending= cached?.digest?.signals?.pending|| 0;
+                  return (
+                    <div key={chat.chat_id} className={`studio-card ${urgent > 0 ? 'has-urgent' : pending > 0 ? 'has-pending' : ''}`}
+                      style={{ borderTopColor: urgent > 0 ? 'var(--urgent)' : pending > 0 ? 'var(--pending)' : color.primary }}>
+                      <div className="studio-card-header">
+                        <Avatar name={name} size={34} community={comm}/>
+                        <div className="studio-card-meta">
+                          <div className="studio-name">{name}</div>
+                          <div className="studio-sub">{cached ? `${cached.msgCount} msgs today` : 'No activity'}</div>
+                        </div>
+                        {urgent > 0  && <span className="sc-badge urgent">{urgent}U</span>}
+                        {pending > 0 && <span className="sc-badge pending">{pending}P</span>}
+                      </div>
+                      <DigestMini cached={cached}/>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }

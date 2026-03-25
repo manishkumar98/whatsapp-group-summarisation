@@ -245,3 +245,57 @@ input{font-family:var(--font);outline:none}
   max-width: 280px; line-height: 1.4;
   flex-shrink: 0;
 }
+
+/* ── Community summary view ── */
+.comm-summary-grid {
+  display: flex; flex-direction: column; gap: 20px;
+}
+.comm-summary-card {
+  background: var(--white); border-radius: 16px; 
+  border: 1px solid var(--gray100); border-left: 5px solid;
+  box-shadow: var(--shadow-md); overflow: hidden;
+}
+.comm-summary-hdr {
+  padding: 16px 20px; border-bottom: 1px solid var(--gray50);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.comm-summary-body {
+  padding: 20px; display: flex; flex-direction: column; gap: 16px;
+}
+.comm-aggregate-summary {
+  font-size: 14px; color: var(--gray700); line-height: 1.6;
+  background: var(--gray50); padding: 14px 18px; border-radius: 10px;
+  border-left: 3px solid var(--nia300);
+}
+.comm-studio-issues {
+  display: flex; flex-direction: column; gap: 12px;
+}
+.cs-issue-group {
+  border: 1px solid var(--gray100); border-radius: 10px; padding: 12px;
+}
+.cs-studio-name {
+  font-size: 12px; font-weight: 700; color: var(--nia600);
+  margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+}
+.cs-issue-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.cs-issue-item {
+  display: flex; gap: 8px; font-size: 12px; color: var(--gray700);
+}
+.cs-issue-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px;
+}
+.cs-issue-dot.urgent { background: var(--urgent); }
+.cs-issue-dot.pending { background: var(--pending); }
+.cs-issue-dot.resolved { background: var(--resolved); }
+
+.comm-stat-pills {
+  display: flex; gap: 8px;
+}
+.csp-pill {
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 9999px;
+}
+.csp-pill.urgent { background: var(--urgent-bg); color: var(--urgent); }
+.csp-pill.pending { background: var(--pending-bg); color: var(--pending); }
+.csp-pill.ready { background: var(--resolved-bg); color: var(--resolved); }
